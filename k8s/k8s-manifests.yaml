@@ -1,0 +1,363 @@
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: my-tg-chan
+---
+# ConfigMap для несекретных переменных окружения
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: my-tg-chan
+  labels:
+    app: movie-app
+data:
+  # Здесь будут несекретные переменные окружения
+  REDIS_HOST: "redis.my-tg-chan.svc.cluster.local"
+  REDIS_PORT: "6379"
+  # Добавьте другие переменные по необходимости
+---
+# PersistentVolumeClaim для данных Redis
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data-pvc
+  namespace: my-tg-chan
+  labels:
+    app: movie-app
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+# PersistentVolumeClaim для папки jpgs
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jpgs-pvc
+  namespace: my-tg-chan
+  labels:
+    app: movie-app
+spec:
+  accessModes:
+    - ReadWriteOnce  # Изменено с ReadWriteMany для лучшей совместимости
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Redis Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: my-tg-chan
+  labels:
+    app: movie-app
+    component: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: movie-app
+      component: redis
+  strategy:
+    type: Recreate  # Для PVC с ReadWriteOnce
+  template:
+    metadata:
+      labels:
+        app: movie-app
+        component: redis
+    spec:
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+      - name: redis
+        image: redis:7.4.2
+        args: ["redis-server", "--appendonly", "yes"]
+        ports:
+        - containerPort: 6379
+          name: redis
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 300m
+            memory: 256Mi
+        livenessProbe:
+          tcpSocket:
+            port: redis
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: redis
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: redis-data
+        persistentVolumeClaim:
+          claimName: redis-data-pvc
+---
+# Redis Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: my-tg-chan
+  labels:
+    app: movie-app
+    component: redis
+spec:
+  ports:
+  - port: 6379
+    targetPort: 6379
+    name: redis
+  selector:
+    app: movie-app
+    component: redis
+---
+# Telegram Bot Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telegram-bot
+  namespace: my-tg-chan
+  labels:
+    app: movie-app
+    component: telegram
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: movie-app
+      component: telegram
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: movie-app
+        component: telegram
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+      - name: telegram
+        image: my_tg_chan_telegram:1  # Замените на реальный регистр и версию образа
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: jpgs-volume
+          mountPath: /app/jpgs
+        envFrom:
+        - configMapRef:
+            name: app-config
+        - secretRef:
+            name: app-secrets
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 300m
+            memory: 256Mi
+        # Если у вашего приложения нет /health endpoint, используйте exec проверку
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - ps aux | grep -v grep | grep -q dev_tg
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          failureThreshold: 5
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - ps aux | grep -v grep | grep -q dev_tg
+          initialDelaySeconds: 20
+          periodSeconds: 10
+      volumes:
+      - name: jpgs-volume
+        persistentVolumeClaim:
+          claimName: jpgs-pvc
+---
+# Tunnel Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tunnel
+  namespace: my-tg-chan
+  labels:
+    app: movie-app
+    component: tunnel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: movie-app
+      component: tunnel
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: movie-app
+        component: tunnel
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+      - name: tunnel
+        image: my_tg_chan_tunnel:1  # Замените на реальный регистр и версию образа
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 1089
+          name: tunnel
+        envFrom:
+        - configMapRef:
+            name: app-config
+        - secretRef:
+            name: app-secrets
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        livenessProbe:
+          tcpSocket:
+            port: tunnel
+          initialDelaySeconds: 30
+          periodSeconds: 20
+        readinessProbe:
+          tcpSocket:
+            port: tunnel
+          initialDelaySeconds: 10
+          periodSeconds: 10
+---
+# Tunnel Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: tunnel
+  namespace: my-tg-chan
+  labels:
+    app: movie-app
+    component: tunnel
+spec:
+  ports:
+  - port: 1089
+    targetPort: 1089
+    name: tunnel
+  selector:
+    app: movie-app
+    component: tunnel
+---
+# TMDB Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tmdb
+  namespace: my-tg-chan
+  labels:
+    app: movie-app
+    component: tmdb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: movie-app
+      component: tmdb
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: movie-app
+        component: tmdb
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+      - name: tmdb
+        image: my_tg_chan_tmdb:1  # Замените на реальный регистр и версию образа
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: jpgs-volume
+          mountPath: /app/jpgs
+        envFrom:
+        - configMapRef:
+            name: app-config
+        - secretRef:
+            name: app-secrets
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 300m
+            memory: 256Mi
+        # Если у вашего приложения нет /health endpoint, используйте exec проверку
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - ps aux | grep -v grep | grep -q dev_tmdb
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - ps aux | grep -v grep | grep -q dev_tmdb
+          initialDelaySeconds: 20
+          periodSeconds: 10
+      volumes:
+      - name: jpgs-volume
+        persistentVolumeClaim:
+          claimName: jpgs-pvc
+---
+# Network Policy для контроля трафика между компонентами
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-network-policy
+  namespace: my-tg-chan
+  labels:
+    app: movie-app
+spec:
+  podSelector:
+    matchLabels:
+      app: movie-app
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: movie-app
+  policyTypes:
+  - Ingress
+  

@@ -1,0 +1,48 @@
+version: '3'
+
+services:
+  redis:
+    image: redis:7.4.2
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis_data:/data  # Храним данные Redis в локальной папке
+    user: "1001:1001" 
+    restart: always
+
+  telegram:
+    build:
+      context: ./tg
+      dockerfile: dockerfile_tg
+    volumes:
+      - ./jpgs:/app/jpgs
+    env_file:
+      - .env
+    # network_mode: host
+
+    restart: always
+
+  tunnel:
+    build:
+      context: ./tun
+      dockerfile: dockerfile_tun
+    ports:
+      - "127.0.0.1:1089:1089"
+    env_file:
+      - .env
+    # network_mode: host
+
+    restart: always
+
+  tmdb:
+    build:
+      context: ./tmdb
+      dockerfile: dockerfile_tmdb
+    volumes:
+      - ./jpgs:/app/jpgs
+    env_file:
+      - .env
+    # network_mode: host
+
+    restart: always

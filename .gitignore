@@ -1,0 +1,24 @@
+# Игнорировать временные файлы
+*.tmp
+
+# Игнорировать все лог-файлы
+*.log
+
+# Игнорировать папку build
+build/
+
+# Игнорировать конкретный файл
+secret.txt
+
+secret.yaml
+secrets.yaml
+
+*.jpg
+
+redis_data/
+
+.env
+
+*.env
+
+venv/

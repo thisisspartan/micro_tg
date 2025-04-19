@@ -1,0 +1,29 @@
+FROM python:3.10-slim-buster
+
+RUN apt-get update && \
+    apt-get install -y openssh-client && \
+    apt-get install -y sshpass && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends procps && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && apt-get install -y tini
+RUN apt-get update && apt-get install -y procps net-tools netcat-traditional
+
+WORKDIR /app
+COPY dev_tun.py .
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+RUN chmod +x dev_tun.py
+
+RUN adduser --disabled-password --gecos "" appuser && chown -R appuser /app
+# Переключаемся на нового пользователя
+USER appuser
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["./dev_tun.py"]
+# docker build -f dockerfile_tun -t dev_tun .
+#docker run --rm -it --network host --env-file ../.env --name dev_tun -p 127.0.0.1:1089:1089 dev_tun 

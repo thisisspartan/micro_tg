@@ -1,0 +1,20 @@
+FROM python:3.10-slim-buster
+WORKDIR /app
+RUN apt-get update && apt-get install -y procps net-tools netcat-traditional
+COPY requirements.txt .
+
+RUN pip install -r requirements.txt
+RUN apt-get update && apt-get install -y tini
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends procps && \
+    rm -rf /var/lib/apt/lists/*
+COPY dev_tmdb.py .
+
+# Создаём нового пользователя и группу, например "appuser", и предоставляем права на /app
+RUN adduser --disabled-password --gecos "" appuser && chown -R appuser /app
+# Переключаемся на нового пользователя
+USER appuser
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD [ "python", "./dev_tmdb.py" ]
+# docker run --rm -it --network host -v /home/nik/git/my_tg_chan/jpgs:/app/jpgs \--name my_dev_tmdb --env-file ../.env dev_tmdb
+# docker build -f dockerfile_tmdb -t dev_tmdb .
