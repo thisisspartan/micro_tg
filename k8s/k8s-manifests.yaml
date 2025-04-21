@@ -152,11 +152,11 @@ spec:
         app: movie-app
         component: telegram
     spec:
-      securityContext:
-        runAsNonRoot: true
+      # securityContext:
+      #   runAsNonRoot: true
       containers:
       - name: telegram
-        image: my_tg_chan_telegram:1  # Замените на реальный регистр и версию образа
+        image: registry.registry.svc.cluster.local:30500/my_tg_chan_telegram:1  # Замените на реальный регистр и версию образа
         imagePullPolicy: Always
         volumeMounts:
         - name: jpgs-volume
@@ -222,11 +222,11 @@ spec:
         app: movie-app
         component: tunnel
     spec:
-      securityContext:
-        runAsNonRoot: true
+      # securityContext:
+      #   runAsNonRoot: true
       containers:
       - name: tunnel
-        image: my_tg_chan_tunnel:1  # Замените на реальный регистр и версию образа
+        image: registry.registry.svc.cluster.local:30500/my_tg_chan_tunnel:1  # Замените на реальный регистр и версию образа
         imagePullPolicy: Always
         ports:
         - containerPort: 1089
@@ -298,11 +298,11 @@ spec:
         app: movie-app
         component: tmdb
     spec:
-      securityContext:
-        runAsNonRoot: true
+      # securityContext:
+      #   runAsNonRoot: true
       containers:
       - name: tmdb
-        image: my_tg_chan_tmdb:1  # Замените на реальный регистр и версию образа
+        image: registry.registry.svc.cluster.local:30500/my_tg_chan_tmdb:1  # Замените на реальный регистр и версию образа
         imagePullPolicy: Always
         volumeMounts:
         - name: jpgs-volume
@@ -360,4 +360,3 @@ spec:
           app: movie-app
   policyTypes:
   - Ingress
-  
