@@ -1,12 +1,13 @@
 FROM python:3.10-slim-buster
 WORKDIR /app
-RUN apt-get update && apt-get install -y procps net-tools netcat-traditional
+RUN apt-get update && \
+    apt-get install -y procps net-tools netcat-traditional openssh-client sshpass && \
+    rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 
-RUN pip install -r requirements.txt
-RUN apt-get update && apt-get install -y tini
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends procps && \
+RUN pip install --no-cache-dir -r requirements.txt && \
+    apt-get update && \
+    apt-get install -y tini && \    
     rm -rf /var/lib/apt/lists/*
 COPY dev_tmdb.py .
 

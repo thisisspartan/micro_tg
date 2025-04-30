@@ -1,0 +1,51 @@
+#docker run --rm -v $PWD:/app python:3.10-slim-buster bash -c "cd /app && pip install -r tmdb/requirements.txt pytest pytest-mock && cd tmdb && PYTHONPATH=$PYTHONPATH:. pytest test_dev_tmdb.py -v"
+variables:
+  DOCKER_REGISTRY: "registry.local:30500"
+  DOCKER_TAG: "${CI_COMMIT_SHA:0:8}"
+
+stages:
+  - test
+  - build
+  - deploy
+
+before_script:
+  - echo "Starting pipeline for ${CI_COMMIT_REF_NAME}"
+  - docker login -u "${DOCKER_USER}" -p "${DOCKER_PASSWORD}" ${DOCKER_REGISTRY}
+
+test:
+  stage: test
+  image: python:3.10-slim-buster
+  script:
+    - pip install -r tg/requirements.txt
+    - pip install -r tmdb/requirements.txt
+    - pip install -r tun/requirements.txt
+    - pip install pytest pytest-mock
+    - python -c "import redis; import requests; import schedule; print('All core dependencies installed')"
+    - python tg/dev_tg.py --help
+    - python tmdb/dev_tmdb.py --help
+    - python tun/dev_tun.py --help
+    - cd tmdb && PYTHONPATH=$PYTHONPATH:. pytest test_dev_tmdb.py -v
+
+build:
+  stage: build
+  services:
+    - docker:dind
+  script:
+    - docker build -f tg/dockerfile_tg -t ${DOCKER_REGISTRY}/dev_tg:${DOCKER_TAG} ./tg
+    - docker build -f tmdb/dockerfile_tmdb -t ${DOCKER_REGISTRY}/dev_tmdb:${DOCKER_TAG} ./tmdb
+    - docker build -f tun/dockerfile_tun -t ${DOCKER_REGISTRY}/dev_tun:${DOCKER_TAG} ./tun
+
+deploy:
+  stage: deploy
+  script:
+    - docker push ${DOCKER_REGISTRY}/dev_tg:${DOCKER_TAG}
+    - docker push ${DOCKER_REGISTRY}/dev_tmdb:${DOCKER_TAG}
+    - docker push ${DOCKER_REGISTRY}/dev_tun:${DOCKER_TAG}
+    - git tag -a "v${DOCKER_TAG}" -m "CI/CD automated tag ${DOCKER_TAG}"
+    - git push origin "v${DOCKER_TAG}"
+  only:
+    - main
+
+cache:
+  paths:
+    - jpgs/

@@ -4,25 +4,90 @@ import requests
 import logging
 import time
 import json
+import socket
+import uuid
+import traceback
 from dotenv import load_dotenv
 import schedule
+from pythonjsonlogger import jsonlogger
 # Load environment variables from .env file
 load_dotenv()
 
-# Configure logging to output to STDOUT
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
+class CustomJsonFormatter(jsonlogger.JsonFormatter):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.hostname = socket.gethostname()
+        self.pod_name = os.getenv('POD_NAME', self.hostname)
+        self.namespace = os.getenv('POD_NAMESPACE', 'default')
+        self.service_name = os.getenv('SERVICE_NAME', 'telegram-service')
+        self.app_version = os.getenv('APP_VERSION', '1.0.0')
+
+    def add_fields(self, log_record, record, message_dict):
+        super().add_fields(log_record, record, message_dict)
+        log_record.update({
+            'timestamp': record.created,
+            'level': record.levelname,
+            'logger': record.name,
+            'service': self.service_name,
+            'hostname': self.hostname,
+            'pod': self.pod_name,
+            'namespace': self.namespace,
+            'version': self.app_version,
+            'file': record.pathname,
+            'line': record.lineno,
+            'function': record.funcName,
+        })
+        if record.exc_info:
+            log_record['exception'] = traceback.format_exception(*record.exc_info)
+        if trace_id := getattr(record, 'trace_id', None):
+            log_record['trace_id'] = trace_id
+
+class RequestContextFilter(logging.Filter):
+    def __init__(self):
+        super().__init__()
+        self.trace_id = str(uuid.uuid4())
+
+    def filter(self, record):
+        record.trace_id = getattr(record, 'trace_id', self.trace_id)
+        return True
+
+def setup_logging():
+    level = os.getenv('LOG_LEVEL', 'INFO').upper()
+    logger = logging.getLogger()
+    logger.setLevel(level)
+    
+    for h in logger.handlers[:]:
+        logger.removeHandler(h)
+    
+    handler = logging.StreamHandler()
+    formatter = CustomJsonFormatter('%(timestamp)s %(level)s [%(service)s] [%(trace_id)s] %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    
+    logger.addFilter(RequestContextFilter())
+    for name in ('requests', 'urllib3', 'schedule'):
+        logging.getLogger(name).setLevel(logging.WARNING)
+    
+    return logger
 
 # Connect to Redis
+logger = setup_logging()
 try:
-    r = redis.Redis(host=os.environ.get('REDIS_HOST'),
-                    port=int(os.environ.get('REDIS_PORT')),
-                    db=int(os.environ.get('REDIS_DB', 0)))
-    logging.info("Connected to Redis")
+    r = redis.Redis(
+        host=os.environ.get('REDIS_HOST'),
+        port=int(os.environ.get('REDIS_PORT')),
+        db=int(os.environ.get('REDIS_DB', 0)),
+        socket_timeout=5,
+        socket_connect_timeout=5,
+        retry_on_timeout=True
+    )
+    r.ping()
+    logger.info("Redis connection established", 
+                extra={'component': 'redis', 'operation': 'connect'})
 except Exception as e:
-    logging.error("Failed to connect to Redis: %s", str(e))
+    logger.error("Redis connection failed",
+                 extra={'component': 'redis', 'error': str(e)},
+                 exc_info=True)
     raise
 
 # Get required variables from environment
@@ -34,9 +99,7 @@ if not TG_CHAT_ID or not TG_FILM_BOT_TOKEN:
     exit(1)
 
 def publish_poster(movie_id, jpg, vote_average):
-    """
-    Publish the poster image to the Telegram chat via bot API.
-    """
+    """Publish the poster image to Telegram."""
     url = f"https://api.telegram.org/bot{TG_FILM_BOT_TOKEN}/sendPhoto"
     payload = {
         "chat_id": TG_CHAT_ID,
@@ -44,54 +107,78 @@ def publish_poster(movie_id, jpg, vote_average):
         "parse_mode": "HTML"
     }
     
+    extra = {
+        'component': 'telegram',
+        'movie_id': movie_id,
+        'file': jpg,
+        'operation': 'send_photo'
+    }
+    
     try:
         os.makedirs("jpgs", exist_ok=True)
         with open(f"jpgs/{jpg}", "rb") as photo:
-            response = requests.post(url, data=payload, files={"photo": photo})
+            response = requests.post(url, data=payload, files={"photo": photo}, timeout=10)
+            
         if response.status_code == 200:
-            logging.info("✅ Successfully sent %s for movie %s", jpg, movie_id)
+            logger.info("Poster published successfully",
+                       extra={**extra, 'status': 'success', 'http_status': 200})
             return True
-        else:
-            logging.error("Failed to send %s for movie %s: %s", jpg, movie_id, response.text)
-            return False
+            
+        logger.error("Failed to publish poster",
+                    extra={**extra, 'status': 'error',
+                           'http_status': response.status_code,
+                           'response': response.text[:200]})
+        return False
     except Exception as e:
-        logging.exception("Exception while sending %s for movie %s: %s", jpg, movie_id, str(e))
+        logger.error("Exception publishing poster",
+                    extra={**extra, 'error': str(e)},
+                    exc_info=True)
         return False
 
 
 def process_posters():
-    """
-    Process the queue of posters ready for publishing.
-    """
+    """Process posters queue from Redis."""
+    trace_id = str(uuid.uuid4())
+    extra = {
+        'component': 'processor',
+        'operation': 'process_queue',
+        'trace_id': trace_id
+    }
+    
     try:
+        logger.info("Starting posters processing", extra=extra)
         all_poster_keys = r.keys(b"poster:*")
-        logging.info("Found %d poster key(s) in Redis", len(all_poster_keys))
+        logger.info("Found poster keys",
+                   extra={**extra, 'key_count': len(all_poster_keys)})
+
+        for key in all_poster_keys:
+            key_str = key.decode('utf-8')
+            movie_id = key_str.split(':')[1]
+
+            poster_data = r.hgetall(key)
+            status = poster_data.get(b'status', b'').decode('utf-8')
+            movie_extra = {**extra, 'movie_id': movie_id}
+
+            if status == "published":
+                logger.debug("Skipping published poster", 
+                            extra={**movie_extra, 'status': 'skipped'})
+                continue
+
+            jpg = poster_data.get(b'jpg', b'').decode('utf-8')
+            vote_average = poster_data.get(b'vote_average', b'').decode('utf-8')
+
+            if publish_poster(movie_id, jpg, vote_average):
+                r.hset(key, "status", "published")
+                logger.info("Poster status updated",
+                            extra={**movie_extra, 'new_status': 'published'})
+            else:
+                logger.warning("Poster publication failed",
+                              extra={**movie_extra, 'retry': True})
+    
     except Exception as e:
-        logging.error("Error retrieving keys from Redis: %s", str(e))
-        return
-
-    for key in all_poster_keys:
-        key_str = key.decode('utf-8')
-        movie_id = key_str.split(':')[1]
-
-        # Get poster data
-        poster_data = r.hgetall(key)
-
-        # Check publication status
-        status = poster_data.get(b'status', b'').decode('utf-8')
-        if status == "published":
-            logging.info("Skipping already published poster for movie %s", movie_id)
-            continue
-
-        jpg = poster_data.get(b'jpg', b'').decode('utf-8')
-        vote_average = poster_data.get(b'vote_average', b'').decode('utf-8')
-
-        # Publish the poster
-        if publish_poster(movie_id, jpg, vote_average):
-            r.hset(key, "status", "published")
-            logging.info("Successfully published poster for movie %s", movie_id)
-        else:
-            logging.warning("Failed to publish poster for movie %s, will retry later", movie_id)
+        logger.error("Poster processing failed",
+                    extra={**extra, 'error': str(e)},
+                    exc_info=True)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ dotenv==0.9.9
 idna==3.10
 PySocks==1.7.1
 python-dotenv==1.1.0
+python-json-logger==3.3.0
 redis==5.2.1
 requests==2.32.3
 schedule==1.2.2
