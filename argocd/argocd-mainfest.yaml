@@ -1,0 +1,41 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: my-tg-chan-argo
+  namespace: argocd
+spec:
+  destination:
+    namespace: my-tg-chan
+    server: https://kubernetes.default.svc
+  source:
+    path: .
+    repoURL: >-
+      http://gitea-http.gitea.svc.cluster.local:3000/gitea_admin/k8s_manifest.git
+    targetRevision: HEAD
+  sources: []
+  project: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+
+
+# project: default
+# source:
+#   repoURL: http://gitea-http.gitea.svc.cluster.local:3000/gitea_admin/k8s_manifest.git
+#   path: .
+#   targetRevision: HEAD
+# destination:
+#   server: https://kubernetes.default.svc
+#   namespace: my-tg-chan
+# syncPolicy:
+#   automated:
+#     prune: true
+#     selfHeal: true
+#   syncOptions:
+#     - CreateNamespace=true
+
+
+

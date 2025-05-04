@@ -1,3 +1,5 @@
+# Variables (to be replaced during deployment)
+# TMDB_TAG=latest
 ---
 # Namespace
 apiVersion: v1
@@ -156,7 +158,7 @@ spec:
       #   runAsNonRoot: true
       containers:
       - name: telegram
-        image: registry.registry.svc.cluster.local:30500/my_tg_chan_telegram:1  # Замените на реальный регистр и версию образа
+        image: registry.registry.svc.cluster.local:30500/my_tg_chan_telegram:2  # Замените на реальный регистр и версию образа
         imagePullPolicy: Always
         volumeMounts:
         - name: jpgs-volume
@@ -226,7 +228,7 @@ spec:
       #   runAsNonRoot: true
       containers:
       - name: tunnel
-        image: registry.registry.svc.cluster.local:30500/my_tg_chan_tunnel:1  # Замените на реальный регистр и версию образа
+        image: registry.registry.svc.cluster.local:30500/my_tg_chan_tunnel:2  # Замените на реальный регистр и версию образа
         imagePullPolicy: Always
         ports:
         - containerPort: 1089
@@ -302,7 +304,7 @@ spec:
       #   runAsNonRoot: true
       containers:
       - name: tmdb
-        image: registry.registry.svc.cluster.local:30500/my_tg_chan_tmdb:1  # Замените на реальный регистр и версию образа
+        image: registry.registry.svc.cluster.local:30500/my_tg_chan_tmdb:${TMDB_TAG}  # Will be replaced during deployment
         imagePullPolicy: Always
         volumeMounts:
         - name: jpgs-volume
