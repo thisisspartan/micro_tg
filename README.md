@@ -30,12 +30,32 @@ A sophisticated microservices architecture that automatically fetches movie post
 
 ```mermaid
 graph TD
-    A[TMDB API] -->|Fetch Data| B(TMDB Service)
-    B -->|Store Metadata| C[(Redis)]
-    C --> D(Telegram Bot)
-    D -->|Publish| E[Telegram Channel]
-    F[SSH Tunnel] -->|Secure Connection| B
-    G[Grafana] -->|Monitor| H((All Services))
+    subgraph Kubernetes Cluster
+        subgraph GitOps
+            Gitea[(Gitea Repo)] -->|Manifests| ArgoCD
+            ArgoCD -->|Sync| AppNamespace
+        end
+        
+        subgraph Monitoring
+            Promtail -->|Logs| Loki
+            Grafana -->|Visualize| Loki
+        end
+        
+        subgraph AppNamespace
+            TMDB[TMDB Service] -->|Store| Redis[(Redis)]
+            Redis --> Telegram[Telegram Bot]
+            Telegram -->|Publish| Channel[Telegram Channel]
+            Tunnel[SSH Tunnel] --> TMDB
+        end
+    end
+    
+    External[TMDB API] -->|Fetch Data| TMDB
+    Channel -->|User Interaction| EndUser[End Users]
+    
+    style Kubernetes Cluster fill:#f5f5f5,stroke:#333,stroke-width:2px
+    style GitOps fill:#e6f7ff,stroke:#1890ff
+    style Monitoring fill:#fff7e6,stroke:#faad14
+    style AppNamespace fill:#f6ffed,stroke:#52c41a
 ```
 
 ## 🔧 Installation
