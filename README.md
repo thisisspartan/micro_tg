@@ -33,9 +33,11 @@ flowchart TD
     subgraph External ["External Services"]
         TMDB["TMDB API"]
         TG["Telegram API"]
+        style External fill:transparent,stroke-dasharray: 5 5
     end
 
     subgraph Infrastructure ["Kubernetes Cluster"]
+        style Infrastructure fill:transparent,stroke-dasharray: 5 5
         subgraph Services ["Application Services"]
             TMDB_SVC["TMDB Service\n(Python 3.10)"]
             TG_BOT["Telegram Bot\n(Python 3.10)"]
