@@ -29,33 +29,64 @@ A sophisticated microservices architecture that automatically fetches movie post
 ## 📦 System Architecture
 
 ```mermaid
-graph TD
-    subgraph Kubernetes Cluster
-        subgraph GitOps
-            Gitea[(Gitea Repo)] -->|Manifests| ArgoCD
-            ArgoCD -->|Sync| AppNamespace
+flowchart TD
+    subgraph External ["External Services"]
+        TMDB["TMDB API"]
+        TG["Telegram API"]
+    end
+
+    subgraph Infrastructure ["Kubernetes Cluster"]
+        subgraph Services ["Application Services"]
+            TMDB_SVC["TMDB Service\n(Python 3.10)"]
+            TG_BOT["Telegram Bot\n(Python 3.10)"]
+            SSH["SSH Tunnel\n(SOCKS5 Proxy)"]
         end
         
-        subgraph Monitoring
-            Promtail -->|Logs| Loki
-            Grafana -->|Visualize| Loki
+        subgraph Storage ["Data Storage"]
+            REDIS["Redis\n(Queue + Metadata)"]
         end
         
-        subgraph AppNamespace
-            TMDB[TMDB Service] -->|Store| Redis[(Redis)]
-            Redis --> Telegram[Telegram Bot]
-            Telegram -->|Publish| Channel[Telegram Channel]
-            Tunnel[SSH Tunnel] --> TMDB
+        subgraph Observability ["Monitoring Stack"]
+            PROMTAIL["Promtail\n(Log Collection)"]
+            LOKI["Loki\n(Log Storage)"]
+            GRAFANA["Grafana\n(Visualization)"]
+        end
+        
+        subgraph CI_CD ["CI/CD Pipeline"]
+            GITEA["Gitea\n(Source Repo)"]
+            ARGOCD["ArgoCD\n(GitOps Sync)"]
         end
     end
     
-    External[TMDB API] -->|Fetch Data| TMDB
-    Channel -->|User Interaction| EndUser[End Users]
+    %% Data Flow Connections
+    TMDB -->|API Requests| SSH
+    SSH -->|Secured Connection| TMDB_SVC
+    TMDB_SVC -->|Store Movie Data| REDIS
+    REDIS -->|Fetch Poster Queue| TG_BOT
+    TG_BOT -->|Publish Posters| TG
     
-    style Kubernetes Cluster fill:#f5f5f5,stroke:#333,stroke-width:2px
-    style GitOps fill:#e6f7ff,stroke:#1890ff
-    style Monitoring fill:#fff7e6,stroke:#faad14
-    style AppNamespace fill:#f6ffed,stroke:#52c41a
+    %% Logging Flow
+    TMDB_SVC -->|Structured Logs| PROMTAIL
+    TG_BOT -->|Structured Logs| PROMTAIL
+    SSH -->|Logs| PROMTAIL
+    PROMTAIL -->|Forward| LOKI
+    LOKI -->|Visualize| GRAFANA
+    
+    %% Deployment Flow
+    GITEA -->|Manifests| ARGOCD
+    ARGOCD -->|Deploy| Infrastructure
+
+    classDef primary fill:#4286f4,stroke:#0f5edb,color:white,stroke-width:2px
+    classDef storage fill:#f9a825,stroke:#c17900,color:white,stroke-width:2px
+    classDef monitoring fill:#43a047,stroke:#00701a,color:white,stroke-width:2px
+    classDef cicd fill:#8e24aa,stroke:#5c007a,color:white,stroke-width:2px
+    classDef external fill:#78909c,stroke:#4b636e,color:white,stroke-width:2px
+
+    class TMDB_SVC,TG_BOT,SSH primary
+    class REDIS storage
+    class PROMTAIL,LOKI,GRAFANA monitoring
+    class GITEA,ARGOCD cicd
+    class TMDB,TG external
 ```
 
 ## 🔧 Installation
